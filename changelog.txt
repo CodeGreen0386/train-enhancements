@@ -1,0 +1,12 @@
+---------------------------------------------------------------------------------------------------
+Version: 0.0.1
+Date: ????
+  Features:
+    - Initial release
+    - Override automatic trains with manual driving
+    - New temp stop overwrites previous temp stop
+    - Mass station renaming
+    - Toggle selected train manual/automatic hotkey and selection tool
+    - Set default temp stop wait conditions / switch to manual
+    - Auto mine signals attached to mined track
+    - Toggle rail block visualization hotkey
