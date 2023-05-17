@@ -22,11 +22,22 @@ script.on_event(e.on_player_removed, function (event)
     global.flags[event.player_index] = nil
 end)
 
+local function get_player_setting(player, setting)
+    return settings.get_player_settings(player)[setting].value
+end
+
 ---@param vehicle LuaEntity?
 ---@return LuaTrain?
 local function get_train(vehicle)
     if not vehicle then return end
     return vehicle.train
+end
+
+---@param train LuaTrain
+---@param manual? boolean
+local function toggle_manual_mode(train, manual)
+    if #train.locomotives == 0 then return end
+    train.manual_mode = manual or not train.manual_mode
 end
 
 ---@param train LuaTrain
@@ -58,7 +69,7 @@ end)
 
 script.on_event(e.on_player_driving_changed_state, function(event)
     local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
-    if not settings.get_player_settings(player)["te-restore-automatic"].value then return end
+    if not get_player_setting(player, "te_restore_automatic") then return end
     local entity = event.entity
     if player.vehicle == entity then return end
     local train = get_train(entity)
@@ -91,19 +102,15 @@ script.on_event("te-toggle-automatic", function(event)
 end)
 
 ---@param event EventData.on_player_selected_area|EventData.on_player_alt_selected_area|EventData.on_player_reverse_selected_area
----@param bool boolean|nil
-local function selected_area(event, bool)
+---@param mnanual boolean|nil
+local function selected_area(event, mnanual)
     local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
     if event.item ~= "te-selection-tool" then return end
     local checked = {}
     for _, entity in pairs(event.entities) do
         local train = entity.train --[[@as LuaTrain]]
         if checked[train.id] then goto continue end
-        if bool ~= nil then
-            train.manual_mode = bool
-        else
-            train.manual_mode = not train.manual_mode
-        end
+        toggle_manual_mode(train, mnanual)
         manual_mode_text(train, player)
         checked[train.id] = true
         ::continue::
@@ -227,7 +234,7 @@ end)
 -- Auto Mine Signals --
 
 local signal_positions = const.signal_positions
-script.on_event(defines.events.on_player_mined_entity, function(event)
+script.on_event(e.on_player_mined_entity, function(event)
     local entity = event.entity
     if not signal_positions[entity.type] then return end
     local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
@@ -262,6 +269,8 @@ script.on_event("te-rotate", function(event)
     local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
     local selected = player.selected
     if not (selected and selected.train) then return end
+    if #selected.train.carriages == 1 then return end
+    if not selected.rotatable then return end
     selected.disconnect_rolling_stock(defines.rail_direction.front)
     selected.disconnect_rolling_stock(defines.rail_direction.back)
     selected.rotate{by_player = player}
@@ -269,12 +278,20 @@ script.on_event("te-rotate", function(event)
     selected.connect_rolling_stock(defines.rail_direction.back)
 end)
 
+-- Default Train Limit --
+
+script.on_event(e.on_built_entity, function(event)
+    local entity = event.created_entity
+    if entity.name ~= "train-stop" then return end
+    local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
+    entity.trains_limit = get_player_setting(player, "te_default_limit") --[[@as uint]]
+end)
+
 -- TODO: default temp stop wait conditions | manual
 -- * ^ this train only | all trains | train groups
 -- TODO: default wait conditions (https://mods.factorio.com/mod/default-wait-conditions)
 -- TODO: change station name in schedule (https://mods.factorio.com/mod/TrainScheduleEditor)
 -- TODO: duplicate station in schedule (https://mods.factorio.com/mod/TrainScheduleHelper)
--- TODO: toggle rail block visualization
 -- TODO: robot build automatic
 -- quick schedule?
 -- train limit loop saturation resolution?
