@@ -31,6 +31,11 @@ data:extend{{
     name = "te-rotate",
     key_sequence = "",
     linked_game_control = "rotate",
+},{
+    type = "custom-input",
+    name = "te-reverse-rotate",
+    key_sequence = "",
+    linked_game_control = "reverse-rotate",
 }}
 
 data:extend{{

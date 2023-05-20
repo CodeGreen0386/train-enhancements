@@ -1,4 +1,5 @@
-local glib = require("gui")
+local events = require("events")
+local glib = require("glib")
 local const = require("const")
 local e = defines.events
 local handlers = {}
@@ -6,19 +7,24 @@ local handlers = {}
 local function setup_globals()
     global.flags = global.flags or {}
     global.stops = global.stops or {}
+    global.trains = global.trains or {}
+    global.ticks = global.ticks or {}
+end
+
+events.on_init(function()
+    setup_globals()
     for index in pairs(game.players) do
         global.flags[index] = {}
     end
-end
+end)
 
-script.on_init(setup_globals)
-script.on_configuration_changed(setup_globals)
+events.on_configuration_changed(setup_globals)
 
-script.on_event(e.on_player_created, function(event)
+events.on_event(e.on_player_created, function(event)
     global.flags[event.player_index] = {}
 end)
 
-script.on_event(e.on_player_removed, function (event)
+events.on_event(e.on_player_removed, function (event)
     global.flags[event.player_index] = nil
 end)
 
@@ -29,7 +35,7 @@ end
 ---@param vehicle LuaEntity?
 ---@return LuaTrain?
 local function get_train(vehicle)
-    if not vehicle then return end
+    if not (vehicle and vehicle.valid) then return end
     return vehicle.train
 end
 
@@ -55,8 +61,7 @@ end
 
 -- Manual Override --
 
----@diagnostic disable-next-line
-script.on_event({"te-up", "te-down", "te-left", "te-right"}, function(event)
+events.on_event({"te-up", "te-down", "te-left", "te-right"}, function(event)
     local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
     if player.render_mode ~= defines.render_mode.game then return end
     local train = get_train(player.vehicle)
@@ -67,7 +72,7 @@ script.on_event({"te-up", "te-down", "te-left", "te-right"}, function(event)
     manual_mode_text(train, player, true)
 end)
 
-script.on_event(e.on_player_driving_changed_state, function(event)
+events.on_event(e.on_player_driving_changed_state, function(event)
     local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
     if not get_player_setting(player, "te_restore_automatic") then return end
     local entity = event.entity
@@ -83,14 +88,17 @@ end)
 
 -- Toggle Selected / Planner --
 
-script.on_event("te-toggle-automatic", function(event)
+events.on_event("te-toggle-automatic", function(event)
     local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
     local train = get_train(player.selected)
     local create_at_cursor = false
-    -- if not train and player.render_mode == defines.render_mode.game then
-    --     train = get_train(player.vehicle)
-    --     create_at_cursor = true
-    -- end
+    if not train and player.render_mode == defines.render_mode.game then
+        local cursor = player.cursor_stack
+        if cursor and cursor.valid_for_read and cursor.name == "te-selection-tool" then
+            train = get_train(player.vehicle)
+            create_at_cursor = true
+        end
+    end
     if train then
         train.manual_mode = not train.manual_mode
         manual_mode_text(train, player, create_at_cursor)
@@ -102,32 +110,31 @@ script.on_event("te-toggle-automatic", function(event)
 end)
 
 ---@param event EventData.on_player_selected_area|EventData.on_player_alt_selected_area|EventData.on_player_reverse_selected_area
----@param mnanual boolean|nil
-local function selected_area(event, mnanual)
+---@param manual boolean|nil
+local function selected_area(event, manual)
     local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
     if event.item ~= "te-selection-tool" then return end
     local checked = {}
     for _, entity in pairs(event.entities) do
         local train = entity.train --[[@as LuaTrain]]
         if checked[train.id] then goto continue end
-        toggle_manual_mode(train, mnanual)
+        toggle_manual_mode(train, manual)
         manual_mode_text(train, player)
         checked[train.id] = true
         ::continue::
     end
 end
 
-script.on_event(e.on_player_selected_area, function(event) selected_area(event, false) end)
-script.on_event(e.on_player_alt_selected_area, function(event) selected_area(event, true) end)
-script.on_event(e.on_player_reverse_selected_area, function(event) selected_area(event, nil) end)
+events.on_event(e.on_player_selected_area, function(event) selected_area(event, false) end)
+events.on_event(e.on_player_alt_selected_area, function(event) selected_area(event, true) end)
+events.on_event(e.on_player_reverse_selected_area, function(event) selected_area(event, nil) end)
 
 -- Temporary Stop Overwrite / Wait Conditions --
 
-script.on_event(e.on_train_changed_state, function(event)
-    -- if not settings.global["te-temporary-manual"].value then return end
+events.on_event(e.on_train_changed_state, function(event)
     local train = event.train
-    if not train.valid then return end
     if train.state ~= defines.train_state.wait_station then return end
+    if not settings.global["te-temporary-manual"].value then return end
     local schedule = train.schedule
     if not schedule then return end
     local records, current = schedule.records, schedule.current
@@ -153,7 +160,7 @@ local function temporary_conditions(record)
     }}
 end
 
-script.on_event(e.on_train_schedule_changed, function(event)
+events.on_event(e.on_train_schedule_changed, function(event)
     if not event.player_index then return end
     local flags = global.flags[event.player_index]
     local train = event.train
@@ -187,9 +194,7 @@ function handlers.rename_button(event)
     player.gui.relative.te_rename.destroy()
 end
 
-glib.add_handlers(handlers)
-
-script.on_event(e.on_entity_renamed, function(event)
+events.on_event(e.on_entity_renamed, function(event)
     local entity = event.entity
     if entity.type ~= "train-stop" then return end
     if event.by_script then return end
@@ -216,7 +221,7 @@ script.on_event(e.on_entity_renamed, function(event)
     })
 end)
 
-script.on_event(e.on_gui_closed, function (event)
+events.on_event(e.on_gui_closed, function (event)
     if event.gui_type ~= defines.gui_type.entity then return end
     if event.entity.type ~= "train-stop" then return end
     local index = event.player_index
@@ -234,7 +239,7 @@ end)
 -- Auto Mine Signals --
 
 local signal_positions = const.signal_positions
-script.on_event(e.on_player_mined_entity, function(event)
+events.on_event(e.on_player_mined_entity, function(event)
     local entity = event.entity
     if not signal_positions[entity.type] then return end
     local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
@@ -258,29 +263,44 @@ end)
 
 -- Toggle Block Visualization --
 
-script.on_event("te-block-toggle", function(event)
+events.on_event("te-block-toggle", function(event)
     local gvs = game.get_player(event.player_index).game_view_settings
     gvs.show_rail_block_visualisation = not gvs.show_rail_block_visualisation
 end)
 
--- Rolling Stock Rotation --
+-- Inline Rotation --
 
-script.on_event("te-rotate", function(event)
+events.on_event({"te-rotate", "te-reverse-rotate"}, function(event)
     local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
+    local allows_rotate = player.permission_group.allows_action(defines.input_action.rotate_entity)
+    if not allows_rotate then return end
     local selected = player.selected
-    if not (selected and selected.train) then return end
+    if not (selected and selected.rotatable) then return end
+    if not selected.train then return end
     if #selected.train.carriages == 1 then return end
-    if not selected.rotatable then return end
     selected.disconnect_rolling_stock(defines.rail_direction.front)
     selected.disconnect_rolling_stock(defines.rail_direction.back)
     selected.rotate{by_player = player}
     selected.connect_rolling_stock(defines.rail_direction.front)
     selected.connect_rolling_stock(defines.rail_direction.back)
+    if game.tick_paused then return end
+    player.permission_group.set_allows_action(defines.input_action.rotate_entity, false)
+    local ticks = global.ticks[event.tick + 1] or {}
+    ticks[#ticks+1] = player.permission_group
+    global.ticks[event.tick + 1] = ticks
+end)
+
+events.on_event(e.on_tick, function(event)
+    local ticks = global.ticks[event.tick]
+    if not ticks then return end
+    for _, group in pairs(ticks) do ---@cast group LuaPermissionGroup
+        group.set_allows_action(defines.input_action.rotate_entity, true)
+    end
 end)
 
 -- Default Train Limit --
 
-script.on_event(e.on_built_entity, function(event)
+events.on_event(e.on_built_entity, function(event)
     local entity = event.created_entity
     if entity.name ~= "train-stop" then return end
     local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
@@ -292,7 +312,7 @@ end)
 -- TODO: default wait conditions (https://mods.factorio.com/mod/default-wait-conditions)
 -- TODO: change station name in schedule (https://mods.factorio.com/mod/TrainScheduleEditor)
 -- TODO: duplicate station in schedule (https://mods.factorio.com/mod/TrainScheduleHelper)
--- TODO: robot build automatic
 -- quick schedule?
 -- train limit loop saturation resolution?
--- default train limit
+
+glib.add_handlers(handlers)

@@ -10,3 +10,5 @@ Date: ????
     - Set default temp stop wait conditions / switch to manual
     - Auto mine signals attached to mined track
     - Toggle rail block visualization hotkey
+    - Set default station train limit
+    - Inline locomotive and wagon rotation
