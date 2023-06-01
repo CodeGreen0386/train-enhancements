@@ -88,7 +88,7 @@ local function relative_settings(name, anchor, content)
             },{
                 args = {type = "frame", name = "content_frame", direction = "vertical", visible = false, style = "inside_shallow_frame_with_padding"},
                 style_mods = {horizontally_stretchable = true},
-                children = content
+                children = {content}
             }}
         }}
     }
@@ -110,43 +110,57 @@ local function setting(content)
     }
 end
 
+local function bool_setting(params)
+    return setting{
+        args = {type = "switch", name = params.name, switch_state = params.default_value and "right" or "left"},
+        handlers = params.handlers
+    }
+end
+
+---@param params {name: string, default_value: number|nil, handlers:GuiEventHandler}
+local function int_setting(params)
+    return setting{
+        args = {
+            type = "textfield", name = params.name, text = params.default_value and tostring(params.default_value), style = "short_number_textfield",
+            numeric = true, allow_decimal = false, allow_negative = false, lose_focus_on_confirm = true, clear_and_focus_on_right_click = true,
+        },
+        handlers = params.handlers
+    }
+end
+
 ---@type GuiElemDef
 local train_gui = relative_settings("te_train_settings", {
     gui = defines.relative_gui_type.train_gui,
     position = defines.relative_gui_position.right,
-},{{
+},{
     args = {type = "flow", direction = "horizontal"},
     children = {
-        setting{
-            args = {type = "switch", name = "restore_automatic", switch_state = "right"},
-            handlers = {[e.on_gui_switch_state_changed] = handlers.toggle_restore_automatic}
+        bool_setting{
+            name = "restore_automatic",
+            default_value = true,
+            handlers = {[e.on_gui_switch_state_changed] = handlers.toggle_restore_automatic},
         }
     }
-}})
+})
 
 ---@type GuiElemDef
 local station_gui = relative_settings("te_station_settings", {
     gui = defines.relative_gui_type.train_stop_gui,
     position = defines.relative_gui_position.right,
-},{{
+},{
     args = {type = "flow", direction = "vertical"},
     children = {
-        setting{
-            args = {
-                type = "textfield", name = "global_train_limit", text = "1", style = "short_number_textfield",
-                numeric = true, allow_decimal = false, allow_negative = false, lose_focus_on_confirm = true, clear_and_focus_on_right_click = true,
-            },
-            handlers = {[e.on_gui_text_changed] = handlers.global_train_limit}
+        int_setting{
+            name = "global_train_limit",
+            default_value = 1,
+            handlers = {[e.on_gui_text_changed] = handlers.global_train_limit},
         },
-        setting{
-            args = {
-                type = "textfield", name = "station_train_limit", style = "short_number_textfield",
-                numeric = true, allow_decimal = false, allow_negative = false, lose_focus_on_confirm = true, clear_and_focus_on_right_click = true,
-            },
-            handlers = {[e.on_gui_click] = handlers.station_train_limit}
+        int_setting{
+            name = "station_train_limit",
+            handlers = {[e.on_gui_click] = handlers.station_train_limit},
         }
     }
-}})
+})
 
 ---@param player LuaPlayer
 function gui.create_gui(player)
