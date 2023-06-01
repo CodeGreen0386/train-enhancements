@@ -11,8 +11,8 @@ local loads = {}
 ---@type table<int, function[]>
 local nths = {}
 
----@param event EventData|EventData[]|string|string[]
----@param fun fun(param1: EventData)
+---@param event defines.events|defines.events[]|string|string[]
+---@param fun fun(event: EventData)
 function lib.on_event(event, fun)
     if type(event) ~= "table" then event = {event} end
     for _, id in pairs(event) do
@@ -40,9 +40,9 @@ end
 ---@param fun function
 function lib.on_configuration_changed(fun)
     configs[#configs+1] = fun
-    script.on_configuration_changed(function()
+    script.on_configuration_changed(function(event)
         for _, config in pairs(configs) do
-            config()
+            config(event)
         end
     end)
 end

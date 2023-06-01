@@ -1,36 +1,77 @@
+local const = require("const")
 local events = require("events")
 local glib = require("glib")
-local const = require("const")
+local gui = require("gui")
 local e = defines.events
 local handlers = {}
 
-local function setup_globals()
-    global.flags = global.flags or {}
-    global.stops = global.stops or {}
-    global.trains = global.trains or {}
-    global.ticks = global.ticks or {}
+---@param player LuaPlayer
+local function setup_player(player)
+    local index = player.index
+    global.flags[index] = global.flags[index] or {}
+    if not global.data[player.index] then
+        ---@class PlayerData
+        global.data[player.index] = {
+            ---@type LuaPlayer
+            player = player,
+            ---@type uint|nil
+            default_train_limit = 1,
+            ---@type boolean
+            restore_automatic = true,
+        }
+    end
+    gui.create_gui(player)
 end
 
-events.on_init(function()
-    setup_globals()
-    for index in pairs(game.players) do
-        global.flags[index] = {}
+local function setup_force(force)
+    local index = force.index
+    if not global.forces[index] then
+        ---@class ForceData
+        global.forces[index] = {
+            ---@type table<string, any>
+            stops = {}
+        }
     end
-end)
+end
 
+local function setup_globals()
+    ---@type table<uint, table<string, boolean>>
+    global.flags = global.flags or {}
+    ---@type table<uint, LuaEntity[]>
+    global.rename = global.rename or {}
+    ---@type table<uint, LuaPermissionGroup[]>
+    global.ticks = global.ticks or {}
+    ---@type table<uint, PlayerData>
+    global.data = global.data or {}
+    ---@type table<uint, ForceData>
+    global.forces = global.forces or {}
+    for _, player in pairs(game.players) do
+        setup_player(player)
+    end
+    for _, force in pairs(game.forces) do
+        setup_force(force)
+    end
+end
+
+events.on_init(setup_globals)
 events.on_configuration_changed(setup_globals)
 
 events.on_event(e.on_player_created, function(event)
-    global.flags[event.player_index] = {}
+    local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
+    setup_player(player)
 end)
 
 events.on_event(e.on_player_removed, function (event)
-    global.flags[event.player_index] = nil
+    local index = event.player_index
+    global.flags[index] = nil
+    global.rename[index] = nil
+    global.ticks[index] = nil
+    global.data[index] = nil
 end)
 
-local function get_player_setting(player, setting)
-    return settings.get_player_settings(player)[setting].value
-end
+events.on_event(e.on_force_created, function(event)
+    global.forces[event.force.index] = {}
+end)
 
 ---@param vehicle LuaEntity?
 ---@return LuaTrain?
@@ -42,8 +83,13 @@ end
 ---@param train LuaTrain
 ---@param manual? boolean
 local function toggle_manual_mode(train, manual)
-    if #train.locomotives == 0 then return end
-    train.manual_mode = manual or not train.manual_mode
+    local locomotives = train.locomotives
+    if #locomotives.front_movers == 0 and #locomotives.back_movers == 0 then return end
+    if manual ~= nil then
+        train.manual_mode = manual
+    else
+        train.manual_mode = not train.manual_mode
+    end
 end
 
 ---@param train LuaTrain
@@ -73,13 +119,13 @@ events.on_event({"te-up", "te-down", "te-left", "te-right"}, function(event)
 end)
 
 events.on_event(e.on_player_driving_changed_state, function(event)
-    local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
-    if not get_player_setting(player, "te_restore_automatic") then return end
+    local index = event.player_index
+    if not global.data[index].restore_automatic then return end
+    local player = game.get_player(index) --[[@as LuaPlayer]]
     local entity = event.entity
     if player.vehicle == entity then return end
     local train = get_train(entity)
-    if not train then return end
-    if not train.manual_mode then return end
+    if not (train and train.manual_mode) then return end
     if train.id ~= global[event.player_index] then return end
     train.manual_mode = false
     global[event.player_index] = nil
@@ -181,13 +227,33 @@ events.on_event(e.on_train_schedule_changed, function(event)
     train.schedule = schedule
 end)
 
+-- Default Train Limit --
+-- ! CHANGE LIMIT WHEN RENAMING STATION AND WHEN CHANGING STATION DEFAULT
+
+---@param entity LuaEntity
+---@param index uint
+local function apply_default_limit(entity, index)
+    local force_data = global.forces[entity.force_index][entity.backer_name]
+    if force_data then
+        entity.trains_limit = force_data.default_train_limit
+        return
+    end
+    entity.trains_limit = global.data[index].default_train_limit
+end
+
+events.on_event(e.on_built_entity, function(event)
+    local entity = event.created_entity
+    if entity.name ~= "train-stop" then return end
+    apply_default_limit(entity, event.player_index)
+end)
+
 -- Mass Station Rename --
 
 function handlers.rename_button(event)
     local index = event.player_index
     local player = game.get_player(index) --[[@as LuaPlayer]]
-    local name = player.opened.backer_name
-    for _, stop in pairs(global.stops[index]) do
+    local name = player.opened.backer_name --[[@as string]]
+    for _, stop in pairs(global.rename[index]) do
         if not stop.valid then break end
         stop.backer_name = name
     end
@@ -201,11 +267,12 @@ events.on_event(e.on_entity_renamed, function(event)
     local index = event.player_index ---@cast index -nil
     local player = game.get_player(index) --[[@as LuaPlayer]]
     if player.opened ~= entity then return end
+    apply_default_limit(entity, index)
     global.flags[index].rename = true
     if player.gui.relative.te_rename then return end
     local stops = game.get_train_stops{name = event.old_name, force = player.force}
     if #stops == 0 then return end
-    global.stops[index] = stops
+    global.rename[index] = stops
     glib.add(player.gui.relative, {
         args = {type = "frame", name = "te_rename", style = "quick_bar_window_frame", anchor = {
             gui = defines.relative_gui_type.train_stop_gui,
@@ -298,21 +365,12 @@ events.on_event(e.on_tick, function(event)
     end
 end)
 
--- Default Train Limit --
-
-events.on_event(e.on_built_entity, function(event)
-    local entity = event.created_entity
-    if entity.name ~= "train-stop" then return end
-    local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
-    entity.trains_limit = get_player_setting(player, "te_default_limit") --[[@as uint]]
-end)
+glib.add_handlers(handlers)
 
 -- TODO: default temp stop wait conditions | manual
 -- * ^ this train only | all trains | train groups
 -- TODO: default wait conditions (https://mods.factorio.com/mod/default-wait-conditions)
 -- TODO: change station name in schedule (https://mods.factorio.com/mod/TrainScheduleEditor)
 -- TODO: duplicate station in schedule (https://mods.factorio.com/mod/TrainScheduleHelper)
--- quick schedule?
+-- quick schedule? auto add next station with cycle detection
 -- train limit loop saturation resolution?
-
-glib.add_handlers(handlers)
