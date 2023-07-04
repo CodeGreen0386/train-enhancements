@@ -374,3 +374,5 @@ glib.add_handlers(handlers)
 -- TODO: duplicate station in schedule (https://mods.factorio.com/mod/TrainScheduleHelper)
 -- quick schedule? auto add next station with cycle detection
 -- train limit loop saturation resolution?
+
+-- fix return to automatic and do temp stop removal on manual
