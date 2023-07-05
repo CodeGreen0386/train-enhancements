@@ -38,9 +38,10 @@ data:extend{{
     linked_game_control = "reverse-rotate",
 }}
 
+---@type SelectionToolPrototype
 data:extend{{
     type = "selection-tool",
-    name = "te-selection-tool",
+    name = "te-toggle-manual-tool",
     icon = "__base__/graphics/icons/deconstruction-planner.png",
     icon_size = 64, icon_mipmaps = 4,
     flags = {"only-in-cursor", "hidden", "not-stackable"},

@@ -172,7 +172,7 @@ function gui.create_gui(player)
 end
 
 glib.add_handlers(handlers, function(event, handler)
-    local data = global.data[event.player_index]
+    local data = global.players[event.player_index]
     handler(data, event)
 end)
 
