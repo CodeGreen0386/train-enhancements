@@ -104,8 +104,6 @@ local function manual_mode_text(train, player, create_at_cursor)
     }
 end
 
--- fix return to automatic and do temp stop removal on manual
-
 -- Manual Override --
 
 events.on_event({"te-up", "te-down", "te-left", "te-right"}, function(event)
@@ -173,8 +171,8 @@ end)
 ---@param event EventData.on_player_selected_area|EventData.on_player_alt_selected_area|EventData.on_player_reverse_selected_area
 ---@param manual boolean|nil
 local function selected_area(event, manual)
+    if event.item ~= "te-toggle-manual" then return end
     local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
-    if event.item ~= "te-toggle-manual-tool" then return end
     local checked = {}
     for _, entity in pairs(event.entities) do
         local train = entity.train --[[@as LuaTrain]]
@@ -381,6 +379,19 @@ events.on_event(e.on_tick, function(event)
     if not ticks then return end
     for _, group in pairs(ticks) do ---@cast group LuaPermissionGroup
         group.set_allows_action(defines.input_action.rotate_entity, true)
+    end
+end)
+
+-- Remove Invalid Signals --
+
+events.on_event(e.on_player_selected_area, function(event)
+    if event.item ~= "te-remove-invalid-signals" then return end
+    local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
+    local force = player.force
+    for _, entity in pairs(event.entities) do
+        if #entity.get_connected_rails() == 0 then
+            entity.order_deconstruction(force, player)
+        end
     end
 end)
 
