@@ -104,11 +104,14 @@ local function manual_mode_text(train, player, create_at_cursor)
     }
 end
 
+-- fix return to automatic and do temp stop removal on manual
+
 -- Manual Override --
 
 events.on_event({"te-up", "te-down", "te-left", "te-right"}, function(event)
     local index = event.player_index
-    local player = game.get_player(index) --[[@as LuaPlayer]]
+    local data = global.players[index]
+    local player = data.player
     if player.render_mode ~= defines.render_mode.game then return end
     local train = get_train(player.vehicle)
     if not train then return end
@@ -116,6 +119,17 @@ events.on_event({"te-up", "te-down", "te-left", "te-right"}, function(event)
     train.manual_mode = true
     global.players[index].train_id = train.id
     manual_mode_text(train, player, true)
+
+    local schedule = train.schedule
+    if not schedule then return end
+    if not schedule.records[schedule.current].temporary then return end
+    table.remove(schedule.records, schedule.current)
+    if schedule.current > #schedule.records then schedule.current = 1 end
+    if #schedule.records == 0 then
+        train.schedule = nil
+        return
+    end
+    train.schedule = schedule
 end)
 
 events.on_event(e.on_player_driving_changed_state, function(event)
@@ -380,5 +394,3 @@ glib.add_handlers(handlers)
 -- TODO: segment deconstruction (decon planner + ctrl + alt + right click?)
 -- TODO: decon planner for invalid signals
 -- quick schedule? auto add next station with cycle detection
-
--- fix return to automatic and do temp stop removal on manual
