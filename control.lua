@@ -233,6 +233,7 @@ end)
 ---@param entity LuaEntity
 ---@param index uint
 local function apply_default_limit(entity, index)
+    if entity.trains_limit ~= 2^32-1 then return end
     local force_data = global.forces[entity.force_index][entity.backer_name]
     if force_data then
         entity.trains_limit = force_data.default_train_limit
@@ -373,6 +374,5 @@ glib.add_handlers(handlers)
 -- TODO: change station name in schedule (https://mods.factorio.com/mod/TrainScheduleEditor)
 -- TODO: duplicate station in schedule (https://mods.factorio.com/mod/TrainScheduleHelper)
 -- quick schedule? auto add next station with cycle detection
--- train limit loop saturation resolution?
 
 -- fix return to automatic and do temp stop removal on manual
