@@ -34,20 +34,30 @@ data:extend{{
     linked_game_control = "reverse-rotate",
 },{
     type = "custom-input",
+    name = "te-mine",
+    key_sequence = "",
+    linked_game_control = "mine",
+},{
+    type = "custom-input",
+    name = "te-add-temporary-station",
+    key_sequence = "",
+    linked_game_control = "add-temporary-station",
+},{
+    type = "custom-input",
     name = "te-toggle-automatic",
     key_sequence = "ALT + A",
 },{
     type = "custom-input",
-    name = "te-remove-invalid-signals",
+    name = "te-remove-invalid-signals-tool",
     key_sequence = "SHIFT + ALT + D",
     action = "spawn-item",
-    item_to_spawn = "te-remove-invalid-signals"
+    item_to_spawn = "te-remove-invalid-signals-tool"
 }}
 
 ---@type SelectionToolPrototype
 data:extend{{
     type = "selection-tool",
-    name = "te-toggle-manual",
+    name = "te-toggle-manual-tool",
     icon = "__base__/graphics/icons/deconstruction-planner.png",
     icon_size = 64, icon_mipmaps = 4,
     flags = {"only-in-cursor", "hidden", "not-stackable"},
@@ -66,7 +76,7 @@ data:extend{{
     alt_selection_cursor_box_type = "entity",
 },{
     type = "selection-tool",
-    name = "te-remove-invalid-signals",
+    name = "te-remove-invalid-signals-tool",
     icon = "__base__/graphics/icons/deconstruction-planner.png",
     icon_size = 64, icon_mipmaps = 4,
     flags = {"only-in-cursor", "hidden", "not-stackable"},
@@ -74,7 +84,7 @@ data:extend{{
     stack_size = 1,
     draw_label_for_cursor_render = true,
     selection_color = {1, 0, 0},
-    alt_selection_color = {1, 0.5, 0},
+    alt_selection_color = {1, 0, 0},
     selection_mode = {"entity-with-health"},
     alt_selection_mode = {"entity-with-health"},
     entity_type_filters = {"rail-signal", "rail-chain-signal"},

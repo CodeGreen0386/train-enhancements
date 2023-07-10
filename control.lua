@@ -28,6 +28,7 @@ local function setup_player(player)
     gui.create_gui(player)
 end
 
+---@param force LuaForce
 local function setup_force(force)
     local index = force.index
     if not global.forces[index] then
@@ -40,7 +41,7 @@ local function setup_force(force)
 end
 
 local function setup_globals()
-    ---@type table<uint, LuaPermissionGroup[]>
+    ---@type table<uint, {group: LuaPermissionGroup, input_action: defines.input_action}[]>
     global.ticks = global.ticks or {}
     ---@type table<uint, PlayerData>
     global.players = global.players or {}
@@ -103,6 +104,25 @@ local function manual_mode_text(train, player, create_at_cursor)
         create_at_cursor = create_at_cursor,
     }
 end
+
+---@param player LuaPlayer
+---@param input_action defines.input_action
+local function consume_input(player, input_action)
+    if game.tick_paused then return end
+    player.permission_group.set_allows_action(input_action, false)
+    local tick = game.tick
+    local ticks = global.ticks[tick+1] or {}
+    ticks[#ticks+1] = {group = player.permission_group, input_action = input_action}
+    global.ticks[tick+1] = ticks
+end
+
+events.on_event(e.on_tick, function(event)
+    local ticks = global.ticks[event.tick]
+    if not ticks then return end
+    for _, data in pairs(ticks) do
+        data.group.set_allows_action(data.input_action, true)
+    end
+end)
 
 -- Manual Override --
 
@@ -170,8 +190,8 @@ end)
 
 ---@param event EventData.on_player_selected_area|EventData.on_player_alt_selected_area|EventData.on_player_reverse_selected_area
 ---@param manual boolean|nil
-local function selected_area(event, manual)
-    if event.item ~= "te-toggle-manual" then return end
+local function toggle_manual_tool(event, manual)
+    if event.item ~= "te-toggle-manual-tool" then return end
     local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
     local checked = {}
     for _, entity in pairs(event.entities) do
@@ -184,9 +204,9 @@ local function selected_area(event, manual)
     end
 end
 
-events.on_event(e.on_player_selected_area, function(event) selected_area(event, false) end)
-events.on_event(e.on_player_alt_selected_area, function(event) selected_area(event, true) end)
-events.on_event(e.on_player_reverse_selected_area, function(event) selected_area(event, nil) end)
+events.on_event(e.on_player_selected_area, function(event) toggle_manual_tool(event, false) end)
+events.on_event(e.on_player_alt_selected_area, function(event) toggle_manual_tool(event, true) end)
+events.on_event(e.on_player_reverse_selected_area, function(event) toggle_manual_tool(event, nil) end)
 
 -- Temporary Stop Overwrite / Wait Conditions --
 
@@ -219,7 +239,12 @@ local function temporary_conditions(record)
     }}
 end
 
+events.on_event("te-add-temporary-station", function(event) -- not firing, literally wtf
+    game.print("te-add-temporary-station")
+end)
+
 events.on_event(e.on_train_schedule_changed, function(event)
+    do return end
     local index = event.player_index
     if not index then return end
     local flags = global.players[index].flags
@@ -288,7 +313,7 @@ events.on_event(e.on_entity_renamed, function(event)
     if player.gui.relative.te_rename then return end
     local stops = game.get_train_stops{name = event.old_name, force = player.force}
     if #stops == 0 then return end
-    global.rename[index] = stops
+    global.players[index].rename = stops
     glib.add(player.gui.relative, {
         args = {type = "frame", name = "te_rename", style = "quick_bar_window_frame", anchor = {
             gui = defines.relative_gui_type.train_stop_gui,
@@ -367,25 +392,13 @@ events.on_event({"te-rotate", "te-reverse-rotate"}, function(event)
     selected.rotate{by_player = player}
     selected.connect_rolling_stock(defines.rail_direction.front)
     selected.connect_rolling_stock(defines.rail_direction.back)
-    if game.tick_paused then return end
-    player.permission_group.set_allows_action(defines.input_action.rotate_entity, false)
-    local ticks = global.ticks[event.tick + 1] or {}
-    ticks[#ticks+1] = player.permission_group
-    global.ticks[event.tick + 1] = ticks
-end)
-
-events.on_event(e.on_tick, function(event)
-    local ticks = global.ticks[event.tick]
-    if not ticks then return end
-    for _, group in pairs(ticks) do ---@cast group LuaPermissionGroup
-        group.set_allows_action(defines.input_action.rotate_entity, true)
-    end
+    consume_input(player, defines.input_action.rotate_entity)
 end)
 
 -- Remove Invalid Signals --
 
-events.on_event(e.on_player_selected_area, function(event)
-    if event.item ~= "te-remove-invalid-signals" then return end
+local function remove_invalid_signals(event)
+    if event.item ~= "te-remove-invalid-signals-tool" then return end
     local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
     local force = player.force
     for _, entity in pairs(event.entities) do
@@ -393,15 +406,78 @@ events.on_event(e.on_player_selected_area, function(event)
             entity.order_deconstruction(force, player)
         end
     end
+end
+
+events.on_event(e.on_player_selected_area, remove_invalid_signals)
+events.on_event(e.on_player_alt_selected_area, remove_invalid_signals)
+
+-- Segment Deconstruction --
+
+---@param entity LuaEntity
+---@param direction defines.rail_direction
+---@param in_else_out boolean
+local function rail_segment_end(entity, direction, in_else_out)
+    local end_entity = entity.get_rail_segment_entity(direction, in_else_out)
+    local end_rail = entity.get_rail_segment_end(direction)
+    if not end_entity then return end
+    if end_entity.type == "train-stop" then
+        if end_rail ~= end_entity.connected_rail then return end -- change to direction detection
+        return end_entity
+    else
+        for _, rail in pairs(end_entity.get_connected_rails()) do
+            if rail == end_rail then
+                return end_entity
+            end
+        end
+    end
+end
+
+events.on_event("te-mine", function(event)
+    local index = event.player_index
+    local player = game.get_player(index) --[[@as LuaPlayer]]
+    local cursor = player.cursor_stack
+    if not (cursor and cursor.valid_for_read and cursor.name == "te-remove-invalid-signals-tool") then return end
+    local selected = player.selected
+    if not selected then return end
+    if selected.type ~= "straight-rail" and selected.type ~= "curved-rail" then return end
+
+    local decon = {} -- instant deconstruction delay
+    decon[#decon+1] = rail_segment_end(selected, defines.rail_direction.front, true)
+    decon[#decon+1] = rail_segment_end(selected, defines.rail_direction.front, false)
+    decon[#decon+1] = rail_segment_end(selected, defines.rail_direction.back, true)
+    decon[#decon+1] = rail_segment_end(selected, defines.rail_direction.back, false)
+
+    local rails = selected.get_rail_segment_rails(defines.rail_direction.front)
+    for _, rail in pairs(rails) do
+        decon[#decon+1] = rail
+    end
+
+    for _, entity in pairs(decon) do
+        if entity.valid then
+            entity.order_deconstruction(player.force, player)
+        end
+    end
+end)
+
+events.on_event(e.on_player_cursor_stack_changed, function(event)
+    local player = game.get_player(event.player_index) --[[@as LuaPlayer]]
+    local cursor = player.cursor_stack
+    if cursor and cursor.valid_for_read and cursor.name == "te-remove-invalid-signals-tool" then
+        player.permission_group.set_allows_action(defines.input_action.begin_mining, false)
+    else
+        player.permission_group.set_allows_action(defines.input_action.begin_mining, true)
+    end
 end)
 
 glib.add_handlers(handlers)
 
 -- TODO: default temp stop wait conditions | manual
--- * ^ this train only | all trains | train groups
+-- * this train only | all trains | train groups
 -- TODO: default wait conditions (https://mods.factorio.com/mod/default-wait-conditions)
 -- TODO: change station name in schedule (https://mods.factorio.com/mod/TrainScheduleEditor)
 -- TODO: duplicate station in schedule (https://mods.factorio.com/mod/TrainScheduleHelper)
--- TODO: segment deconstruction (decon planner + ctrl + alt + right click?)
--- TODO: decon planner for invalid signals
 -- quick schedule? auto add next station with cycle detection
+
+-- add-temporary-station custom input detection
+-- add shortcut for selection tools
+-- add icon for selection tools
